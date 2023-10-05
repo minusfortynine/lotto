@@ -6,7 +6,7 @@ function lotto(howMany, outOf) {
     numbers.push(i);
     };
 
-    // pick 6 lucky numbers
+    // pick lucky numbers
     const luckyNumbers = [];
     for (i = 1; i < (howMany + 1); i++) {
     randomNumber = Math.floor(Math.random() *((outOf + 1)-i));
