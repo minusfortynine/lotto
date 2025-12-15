@@ -1,20 +1,10 @@
 /*
- * Simple Lotto Number Generator in Standard C
+ * Command-line Lotto Number Generator in Standard C
  *
- * This program generates random lottery numbers without replacement,
- * similar to the provided JavaScript version.
- * It selects 'how_many' unique numbers from 1 to 'out_of',
- * sorts them in ascending order, and prints multiple sets.
+ * Usage: ./lotto <how_many> <out_of> <sets>
+ * Example: ./lotto 6 45 3   -> generates 3 sets of 6 numbers from 1-45
  *
- * Key constraints respected:
- * - Only stack memory used (fixed-size arrays)
- * - No pointers (except for minimal array parameter passing)
- * - No heap allocation (no malloc/free)
- * - No global variables
- * - Standard C (C99/C11 compatible)
- * - Assertions for development-time checks
- * - Clear documentation and consistent naming
- * - Simple, readable expressions
+ * All memory is stack-allocated, no heap usage, highly portable.
  */
 
 #include <stdio.h>
@@ -22,53 +12,50 @@
 #include <time.h>
 #include <assert.h>
 
-/* Maximum possible value for 'out_of' - determines array size on stack */
+#ifdef __unix__
+#include <unistd.h>   /* For getpid() on Unix-like systems */
+#endif
+
+/* Maximum supported 'out_of' value (limits stack array size) */
 #define MAX_OUT_OF 100
+#define MAX_SETS   100  /* Reasonable upper limit for number of sets */
 
 /**
- * Generates 'how_many' unique random numbers from 1 to 'out_of',
+ * Generates one set of 'how_many' unique random numbers from 1 to 'out_of',
  * sorted in ascending order.
  *
- * @param how_many   Number of lucky numbers to pick (e.g., 6)
- * @param out_of     Total numbers available (e.g., 45)
- * @param result     Array where sorted lucky numbers will be stored
- *                   Must have space for at least 'how_many' elements
- * @return           1 on success, 0 on failure (invalid parameters)
+ * @param how_many  Numbers to pick
+ * @param out_of    Total pool size
+ * @param result    Output array (must hold at least 'how_many' ints)
+ * @return          1 on success, 0 on invalid parameters
  */
 int generate_lotto_numbers(int how_many, int out_of, int result[])
 {
-    /* Input validation with assertions (active in debug builds) */
+    /* Development-time checks */
     assert(how_many > 0);
     assert(out_of >= how_many);
     assert(out_of <= MAX_OUT_OF);
 
-    /* Early return if parameters are clearly invalid */
+    /* Runtime validation */
     if (how_many <= 0 || out_of < how_many || out_of > MAX_OUT_OF) {
         return 0;
     }
 
-    /* Pool of available numbers (1 to out_of) - stored on stack */
     int pool[MAX_OUT_OF];
-    int pool_size = 0;
 
-    for (int i = 1; i <= out_of; i++) {
-        pool[pool_size] = i;
-        pool_size++;
+    /* Initialize pool with numbers 1 to out_of */
+    for (int i = 0; i < out_of; i++) {
+        pool[i] = i + 1;
     }
 
-    /* Select 'how_many' numbers without replacement */
-    int lucky_index = 0;
+    /* Select 'how_many' numbers without replacement (Fisher-Yates style) */
     for (int i = 0; i < how_many; i++) {
-        /* Remaining numbers at this step */
         int remaining = out_of - i;
-        /* Random index in current pool */
         int rand_index = rand() % remaining;
 
-        /* Pick the number */
-        result[lucky_index] = pool[rand_index];
-        lucky_index++;
+        result[i] = pool[rand_index];
 
-        /* Remove picked number by overwriting with last element */
+        /* Remove selected number by overwriting with last element */
         pool[rand_index] = pool[remaining - 1];
     }
 
@@ -87,40 +74,78 @@ int generate_lotto_numbers(int how_many, int out_of, int result[])
 }
 
 /**
- * Prints a list of numbers in a clean format.
+ * Prints a single lotto set with nice formatting.
  */
 void print_lotto_set(const int numbers[], int count)
 {
     for (int i = 0; i < count; i++) {
-        if (i > 0) {
-            printf(" ");
-        }
+        if (i > 0) printf("  ");
         printf("%2d", numbers[i]);
     }
     printf("\n");
 }
 
-int main(void)
+/**
+ * Prints usage information and exits.
+ */
+void print_usage(const char *program_name)
 {
-    /* Seed the random number generator once */
-    srand((unsigned int)time(NULL));
+    fprintf(stderr, "Usage: %s <how_many> <out_of> <sets>\n", program_name);
+    fprintf(stderr, "Example: %s 6 45 3\n", program_name);
+    fprintf(stderr, "  how_many : number of lucky numbers (e.g. 6 or 7)\n");
+    fprintf(stderr, "  out_of   : total numbers to choose from (e.g. 45 or 49)\n");
+    fprintf(stderr, "  sets     : how many lines to generate\n");
+    fprintf(stderr, "\nConstraints:\n");
+    fprintf(stderr, "  1 <= how_many <= out_of <= %d\n", MAX_OUT_OF);
+    fprintf(stderr, "  1 <= sets <= %d\n", MAX_SETS);
+}
 
-    const int how_many = 6;
-    const int out_of   = 45;
-    const int sets     = 3;  /* Number of lotto lines to generate */
+int main(int argc, char *argv[])
+{
+    /* Check for correct number of arguments */
+    if (argc != 4) {
+        print_usage(argv[0]);
+        return 1;
+    }
 
-    printf("Generating %d sets of %d numbers from 1 to %d:\n\n", sets, how_many, out_of);
+    /* Parse command-line arguments */
+    int how_many = atoi(argv[1]);
+    int out_of   = atoi(argv[2]);
+    int sets     = atoi(argv[3]);
 
-    int lucky_numbers[how_many];  /* Stack-allocated result buffer */
+    /* Validate parsed values */
+    if (how_many <= 0 || out_of < how_many || out_of > MAX_OUT_OF ||
+        sets <= 0 || sets > MAX_SETS) {
+        fprintf(stderr, "Error: Invalid parameters.\n");
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    /* Seed the random number generator.
+     * We combine time() with getpid() when available to make concurrent
+     * runs less likely to get the same sequence. rand() itself is not
+     * cryptographically secure, but perfectly fine for lotto fun.
+     */
+    unsigned int seed = (unsigned int)time(NULL);
+
+#ifdef __unix__
+    seed ^= (unsigned int)getpid();
+#endif
+
+    srand(seed);
+
+    printf("Generating %d set%s of %d numbers from 1 to %d:\n\n",
+           sets, sets == 1 ? "" : "s", how_many, out_of);
+
+    int lucky_numbers[how_many];  /* Stack buffer for one set */
 
     for (int i = 0; i < sets; i++) {
         int success = generate_lotto_numbers(how_many, out_of, lucky_numbers);
-        if (success) {
-            print_lotto_set(lucky_numbers, how_many);
-        } else {
-            fprintf(stderr, "Error: Invalid parameters for lotto generation.\n");
+        if (!success) {
+            fprintf(stderr, "Error: Failed to generate numbers (should not happen).\n");
             return 1;
         }
+        print_lotto_set(lucky_numbers, how_many);
     }
 
     return 0;
